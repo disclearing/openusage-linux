@@ -1,6 +1,21 @@
 (function () {
-  const STATE_DB =
-    "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb"
+  const STATE_DB_VARIANTS = {
+    macos: [
+      "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+      "~/Library/Application Support/Cursor - Insiders/User/globalStorage/state.vscdb",
+      "~/Library/Application Support/Cursor - OSS/User/globalStorage/state.vscdb",
+    ],
+    linux: [
+      "~/.config/Cursor/User/globalStorage/state.vscdb",
+      "~/.config/Cursor - Insiders/User/globalStorage/state.vscdb",
+      "~/.config/Cursor - OSS/User/globalStorage/state.vscdb",
+    ],
+    windows: [
+      "~/AppData/Roaming/Cursor/User/globalStorage/state.vscdb",
+      "~/AppData/Roaming/Cursor - Insiders/User/globalStorage/state.vscdb",
+      "~/AppData/Roaming/Cursor - OSS/User/globalStorage/state.vscdb",
+    ],
+  }
   const KEYCHAIN_ACCESS_TOKEN_SERVICE = "cursor-access-token"
   const KEYCHAIN_REFRESH_TOKEN_SERVICE = "cursor-refresh-token"
   const BASE_URL = "https://api2.cursor.sh"
@@ -14,11 +29,32 @@
   const REFRESH_BUFFER_MS = 5 * 60 * 1000 // refresh 5 minutes before expiration
   const LOGIN_HINT = "Sign in via Cursor app or run `agent login`."
 
-  function readStateValue(ctx, key) {
+  function getStateDbCandidates(ctx) {
+    const rawPlatform = String((ctx.app && ctx.app.platform) || "").trim().toLowerCase()
+    const platform = rawPlatform === "darwin" ? "macos" : rawPlatform
+    const preferred = STATE_DB_VARIANTS[platform] || []
+    const seen = Object.create(null)
+    const out = []
+    const append = (items) => {
+      for (let i = 0; i < items.length; i += 1) {
+        const item = String(items[i] || "").trim()
+        if (!item || seen[item]) continue
+        seen[item] = true
+        out.push(item)
+      }
+    }
+    append(preferred)
+    append(STATE_DB_VARIANTS.macos)
+    append(STATE_DB_VARIANTS.linux)
+    append(STATE_DB_VARIANTS.windows)
+    return out
+  }
+
+  function readStateValue(ctx, dbPath, key) {
     try {
       const sql =
         "SELECT value FROM ItemTable WHERE key = '" + key + "' LIMIT 1;"
-      const json = ctx.host.sqlite.query(STATE_DB, sql)
+      const json = ctx.host.sqlite.query(dbPath, sql)
       const rows = ctx.util.tryParseJson(json)
       if (!Array.isArray(rows)) {
         throw new Error("sqlite returned invalid json")
@@ -27,12 +63,12 @@
         return rows[0].value
       }
     } catch (e) {
-      ctx.host.log.warn("sqlite read failed for " + key + ": " + String(e))
+      ctx.host.log.warn("sqlite read failed for " + key + " at " + dbPath + ": " + String(e))
     }
     return null
   }
 
-  function writeStateValue(ctx, key, value) {
+  function writeStateValue(ctx, dbPath, key, value) {
     try {
       // Escape single quotes in value for SQL
       const escaped = String(value).replace(/'/g, "''")
@@ -42,11 +78,37 @@
         "', '" +
         escaped +
         "');"
-      ctx.host.sqlite.exec(STATE_DB, sql)
+      ctx.host.sqlite.exec(dbPath, sql)
       return true
     } catch (e) {
-      ctx.host.log.warn("sqlite write failed for " + key + ": " + String(e))
+      ctx.host.log.warn("sqlite write failed for " + key + " at " + dbPath + ": " + String(e))
       return false
+    }
+  }
+
+  function loadSqliteAuth(ctx) {
+    const dbCandidates = getStateDbCandidates(ctx)
+    for (let i = 0; i < dbCandidates.length; i += 1) {
+      const dbPath = dbCandidates[i]
+      const accessToken = readStateValue(ctx, dbPath, "cursorAuth/accessToken")
+      const refreshToken = readStateValue(ctx, dbPath, "cursorAuth/refreshToken")
+      const membershipTypeRaw = readStateValue(ctx, dbPath, "cursorAuth/stripeMembershipType")
+      if (!accessToken && !refreshToken) continue
+      const membershipType = typeof membershipTypeRaw === "string"
+        ? membershipTypeRaw.trim().toLowerCase()
+        : null
+      return {
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        membershipType: membershipType,
+        dbPath: dbPath,
+      }
+    }
+    return {
+      accessToken: null,
+      refreshToken: null,
+      membershipType: null,
+      dbPath: null,
     }
   }
 
@@ -80,12 +142,11 @@
   }
 
   function loadAuthState(ctx) {
-    const sqliteAccessToken = readStateValue(ctx, "cursorAuth/accessToken")
-    const sqliteRefreshToken = readStateValue(ctx, "cursorAuth/refreshToken")
-    const sqliteMembershipTypeRaw = readStateValue(ctx, "cursorAuth/stripeMembershipType")
-    const sqliteMembershipType = typeof sqliteMembershipTypeRaw === "string"
-      ? sqliteMembershipTypeRaw.trim().toLowerCase()
-      : null
+    const sqliteAuth = loadSqliteAuth(ctx)
+    const sqliteAccessToken = sqliteAuth.accessToken
+    const sqliteRefreshToken = sqliteAuth.refreshToken
+    const sqliteMembershipType = sqliteAuth.membershipType
+    const sqliteDbPath = sqliteAuth.dbPath
 
     const keychainAccessToken = readKeychainValue(ctx, KEYCHAIN_ACCESS_TOKEN_SERVICE)
     const keychainRefreshToken = readKeychainValue(ctx, KEYCHAIN_REFRESH_TOKEN_SERVICE)
@@ -102,6 +163,7 @@
           accessToken: keychainAccessToken,
           refreshToken: keychainRefreshToken,
           source: "keychain",
+          sqliteDbPath: null,
         }
       }
 
@@ -109,6 +171,7 @@
         accessToken: sqliteAccessToken,
         refreshToken: sqliteRefreshToken,
         source: "sqlite",
+        sqliteDbPath: sqliteDbPath,
       }
     }
 
@@ -117,6 +180,7 @@
         accessToken: keychainAccessToken,
         refreshToken: keychainRefreshToken,
         source: "keychain",
+        sqliteDbPath: null,
       }
     }
 
@@ -124,6 +188,7 @@
       accessToken: null,
       refreshToken: null,
       source: null,
+      sqliteDbPath: null,
     }
   }
 
@@ -135,11 +200,15 @@
     return subject || null
   }
 
-  function persistAccessToken(ctx, source, accessToken) {
+  function persistAccessToken(ctx, source, accessToken, sqliteDbPath) {
     if (source === "keychain") {
       return writeKeychainValue(ctx, KEYCHAIN_ACCESS_TOKEN_SERVICE, accessToken)
     }
-    return writeStateValue(ctx, "cursorAuth/accessToken", accessToken)
+    if (!sqliteDbPath) {
+      ctx.host.log.warn("sqlite source selected but no db path available for token persist")
+      return false
+    }
+    return writeStateValue(ctx, sqliteDbPath, "cursorAuth/accessToken", accessToken)
   }
 
   function getTokenExpiration(ctx, token) {
@@ -158,7 +227,7 @@
     })
   }
 
-  function refreshToken(ctx, refreshTokenValue, source) {
+  function refreshToken(ctx, refreshTokenValue, source, sqliteDbPath) {
     if (!refreshTokenValue) {
       ctx.host.log.warn("refresh skipped: no refresh token")
       return null
@@ -213,7 +282,7 @@
       }
 
       // Persist updated access token to source where auth was loaded from.
-      persistAccessToken(ctx, source, newAccessToken)
+      persistAccessToken(ctx, source, newAccessToken, sqliteDbPath)
       ctx.host.log.info("refresh succeeded, token persisted")
 
       // Note: Cursor refresh returns access_token which is used as both
@@ -379,6 +448,7 @@
     let accessToken = authState.accessToken
     const refreshTokenValue = authState.refreshToken
     const authSource = authState.source
+    const sqliteDbPath = authState.sqliteDbPath
 
     if (!accessToken && !refreshTokenValue) {
       ctx.host.log.error("probe failed: no access or refresh token in sqlite/keychain")
@@ -394,7 +464,7 @@
       ctx.host.log.info("token needs refresh (expired or expiring soon)")
       let refreshed = null
       try {
-        refreshed = refreshToken(ctx, refreshTokenValue, authSource)
+        refreshed = refreshToken(ctx, refreshTokenValue, authSource, sqliteDbPath)
       } catch (e) {
         // If refresh fails but we have an access token, try it anyway
         ctx.host.log.warn("refresh failed but have access token, will try: " + String(e))
@@ -426,7 +496,7 @@
         refresh: () => {
           ctx.host.log.info("usage returned 401, attempting refresh")
           didRefresh = true
-          const refreshed = refreshToken(ctx, refreshTokenValue, authSource)
+          const refreshed = refreshToken(ctx, refreshTokenValue, authSource, sqliteDbPath)
           if (refreshed) accessToken = refreshed
           return refreshed
         },

@@ -57,6 +57,7 @@ function App() {
     setResetTimerDisplayMode,
     setGlobalShortcut,
     setStartOnLogin,
+    setPinOnTop,
   } = useAppPreferencesStore(
     useShallow((state) => ({
       autoUpdateInterval: state.autoUpdateInterval,
@@ -71,6 +72,7 @@ function App() {
       setResetTimerDisplayMode: state.setResetTimerDisplayMode,
       setGlobalShortcut: state.setGlobalShortcut,
       setStartOnLogin: state.setStartOnLogin,
+      setPinOnTop: state.setPinOnTop,
     }))
   )
 
@@ -119,6 +121,7 @@ function App() {
     setResetTimerDisplayMode,
     setGlobalShortcut,
     setStartOnLogin,
+    setPinOnTop,
     setLoadingForPlugins,
     setErrorForPlugins,
     startBatch,
@@ -145,12 +148,14 @@ function App() {
     handleAutoUpdateIntervalChange,
     handleGlobalShortcutChange,
     handleStartOnLoginChange,
+    handlePinOnTopChange,
   } = useSettingsSystemActions({
     pluginSettings,
     setAutoUpdateInterval,
     setAutoUpdateNextAt,
     setGlobalShortcut,
     setStartOnLogin,
+    setPinOnTop,
     applyStartOnLogin,
   })
 
@@ -248,6 +253,7 @@ function App() {
         traySettingsPreview,
         onGlobalShortcutChange: handleGlobalShortcutChange,
         onStartOnLoginChange: handleStartOnLoginChange,
+        onPinOnTopChange: handlePinOnTopChange,
       }}
     />
   )

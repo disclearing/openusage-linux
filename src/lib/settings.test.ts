@@ -4,6 +4,7 @@ import {
   DEFAULT_DISPLAY_MODE,
   DEFAULT_GLOBAL_SHORTCUT,
   DEFAULT_MENUBAR_ICON_STYLE,
+  DEFAULT_PIN_ON_TOP,
   DEFAULT_PLUGIN_SETTINGS,
   DEFAULT_RESET_TIMER_DISPLAY_MODE,
   DEFAULT_START_ON_LOGIN,
@@ -14,6 +15,7 @@ import {
   loadDisplayMode,
   loadGlobalShortcut,
   loadMenubarIconStyle,
+  loadPinOnTop,
   loadPluginSettings,
   loadResetTimerDisplayMode,
   loadStartOnLogin,
@@ -24,6 +26,7 @@ import {
   saveDisplayMode,
   saveGlobalShortcut,
   saveMenubarIconStyle,
+  savePinOnTop,
   savePluginSettings,
   saveResetTimerDisplayMode,
   saveStartOnLogin,
@@ -338,5 +341,24 @@ describe("settings", () => {
   it("falls back to default for invalid start on login value", async () => {
     storeState.set("startOnLogin", "invalid")
     await expect(loadStartOnLogin()).resolves.toBe(DEFAULT_START_ON_LOGIN)
+  })
+
+  it("loads default pin on top when missing", async () => {
+    await expect(loadPinOnTop()).resolves.toBe(DEFAULT_PIN_ON_TOP)
+  })
+
+  it("loads stored pin on top value", async () => {
+    storeState.set("pinOnTop", false)
+    await expect(loadPinOnTop()).resolves.toBe(false)
+  })
+
+  it("saves pin on top value", async () => {
+    await savePinOnTop(false)
+    await expect(loadPinOnTop()).resolves.toBe(false)
+  })
+
+  it("falls back to default for invalid pin on top value", async () => {
+    storeState.set("pinOnTop", "invalid")
+    await expect(loadPinOnTop()).resolves.toBe(DEFAULT_PIN_ON_TOP)
   })
 })

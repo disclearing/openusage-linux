@@ -12,6 +12,7 @@ import {
   DEFAULT_DISPLAY_MODE,
   DEFAULT_GLOBAL_SHORTCUT,
   DEFAULT_MENUBAR_ICON_STYLE,
+  DEFAULT_PIN_ON_TOP,
   DEFAULT_RESET_TIMER_DISPLAY_MODE,
   DEFAULT_START_ON_LOGIN,
   DEFAULT_THEME_MODE,
@@ -22,6 +23,7 @@ import {
   loadMenubarIconStyle,
   migrateLegacyTraySettings,
   loadPluginSettings,
+  loadPinOnTop,
   loadResetTimerDisplayMode,
   loadStartOnLogin,
   loadThemeMode,
@@ -46,6 +48,7 @@ type UseSettingsBootstrapArgs = {
   setGlobalShortcut: (value: GlobalShortcut) => void
   setStartOnLogin: (value: boolean) => void
   setMenubarIconStyle: (value: MenubarIconStyle) => void
+  setPinOnTop: (value: boolean) => void
   setLoadingForPlugins: (ids: string[]) => void
   setErrorForPlugins: (ids: string[], error: string) => void
   startBatch: (pluginIds?: string[]) => Promise<string[] | undefined>
@@ -61,6 +64,7 @@ export function useSettingsBootstrap({
   setGlobalShortcut,
   setStartOnLogin,
   setMenubarIconStyle,
+  setPinOnTop,
   setLoadingForPlugins,
   setErrorForPlugins,
   startBatch,
@@ -153,6 +157,20 @@ export function useSettingsBootstrap({
           console.error("Failed to load menubar icon style:", error)
         }
 
+        let storedPinOnTop = DEFAULT_PIN_ON_TOP
+        try {
+          storedPinOnTop = await loadPinOnTop()
+        } catch (error) {
+          console.error("Failed to load pin on top setting:", error)
+        }
+        try {
+          if (isTauri()) {
+            await invoke("set_window_pin_on_top", { pinned: storedPinOnTop })
+          }
+        } catch (error) {
+          console.error("Failed to apply pin on top setting:", error)
+        }
+
         if (isMounted) {
           setPluginSettings(normalized)
           setAutoUpdateInterval(storedInterval)
@@ -162,6 +180,7 @@ export function useSettingsBootstrap({
           setGlobalShortcut(storedGlobalShortcut)
           setStartOnLogin(storedStartOnLogin)
           setMenubarIconStyle(storedMenubarIconStyle)
+          setPinOnTop(storedPinOnTop)
 
           const enabledIds = getEnabledPluginIds(normalized)
           setLoadingForPlugins(enabledIds)
@@ -192,6 +211,7 @@ export function useSettingsBootstrap({
     setGlobalShortcut,
     setLoadingForPlugins,
     setMenubarIconStyle,
+    setPinOnTop,
     migrateLegacyTraySettings,
     setPluginSettings,
     setPluginsMeta,

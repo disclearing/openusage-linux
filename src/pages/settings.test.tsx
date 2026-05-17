@@ -67,6 +67,8 @@ const defaultProps = {
   onGlobalShortcutChange: vi.fn(),
   startOnLogin: false,
   onStartOnLoginChange: vi.fn(),
+  pinOnTop: true,
+  onPinOnTopChange: vi.fn(),
 }
 
 afterEach(() => {

@@ -36,6 +36,11 @@ import {
 import type { TraySettingsPreview } from "@/hooks/app/use-tray-icon";
 import { cn } from "@/lib/utils";
 
+function isLinuxRuntime(): boolean {
+  if (typeof navigator === "undefined") return false
+  return /Linux/i.test(navigator.userAgent)
+}
+
 interface PluginConfig {
   id: string;
   name: string;
@@ -275,6 +280,8 @@ interface SettingsPageProps {
   onGlobalShortcutChange: (value: GlobalShortcut) => void;
   startOnLogin: boolean;
   onStartOnLoginChange: (value: boolean) => void;
+  pinOnTop: boolean;
+  onPinOnTopChange: (value: boolean) => void;
 }
 
 export function SettingsPage({
@@ -296,7 +303,10 @@ export function SettingsPage({
   onGlobalShortcutChange,
   startOnLogin,
   onStartOnLoginChange,
+  pinOnTop,
+  onPinOnTopChange,
 }: SettingsPageProps) {
+  const linuxRuntime = isLinuxRuntime()
   const sensors = useSensors(
     useSensor(PointerSensor),
     useSensor(KeyboardSensor, {
@@ -489,6 +499,22 @@ export function SettingsPage({
           Start on login
         </label>
       </section>
+      {linuxRuntime && (
+        <section>
+          <h3 className="text-lg font-semibold mb-0">Window</h3>
+          <p className="text-sm text-muted-foreground mb-2">
+            Keep OpenUsage above other windows
+          </p>
+          <label className="flex items-center gap-2 text-sm select-none text-foreground">
+            <Checkbox
+              key={`pin-on-top-${pinOnTop}`}
+              checked={pinOnTop}
+              onCheckedChange={(checked) => onPinOnTopChange(checked === true)}
+            />
+            Keep window on top
+          </label>
+        </section>
+      )}
       <section>
         <h3 className="text-lg font-semibold mb-0">Plugins</h3>
         <p className="text-sm text-muted-foreground mb-2">

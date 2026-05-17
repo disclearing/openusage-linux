@@ -61,35 +61,26 @@ fn set_panel_top_left_immediately(
     }
 }
 
-/// Macro to get existing panel or initialize it if needed.
-/// Returns Option<Panel> - Some if panel is available, None on error.
-macro_rules! get_or_init_panel {
-    ($app_handle:expr) => {
-        match $app_handle.get_webview_panel("main") {
-            Ok(panel) => Some(panel),
-            Err(_) => {
-                if let Err(err) = crate::panel::init($app_handle) {
-                    log::error!("Failed to init panel: {}", err);
-                    None
-                } else {
-                    match $app_handle.get_webview_panel("main") {
-                        Ok(panel) => Some(panel),
-                        Err(err) => {
-                            log::error!("Panel missing after init: {:?}", err);
-                            None
-                        }
+fn panel_or_init(app_handle: &AppHandle) -> Option<tauri_nspanel::WebviewPanel> {
+    match app_handle.get_webview_panel("main") {
+        Ok(panel) => Some(panel),
+        Err(_) => {
+            if let Err(err) = crate::panel::init(app_handle) {
+                log::error!("Failed to init panel: {}", err);
+                None
+            } else {
+                match app_handle.get_webview_panel("main") {
+                    Ok(panel) => Some(panel),
+                    Err(err) => {
+                        log::error!("Panel missing after init: {:?}", err);
+                        None
                     }
                 }
             }
         }
-    };
+    }
 }
 
-// Export macro for use in other modules
-pub(crate) use get_or_init_panel;
-
-/// Retrieve the tray icon rect and position the panel beneath it.
-/// No-ops gracefully if the tray icon or its rect is unavailable.
 fn position_panel_from_tray(app_handle: &AppHandle) {
     let Some(tray) = app_handle.tray_by_id("tray") else {
         log::debug!("position_panel_from_tray: tray icon not found");
@@ -108,18 +99,21 @@ fn position_panel_from_tray(app_handle: &AppHandle) {
     }
 }
 
-/// Show the panel (initializing if needed), positioned under the tray icon.
 pub fn show_panel(app_handle: &AppHandle) {
-    if let Some(panel) = get_or_init_panel!(app_handle) {
+    if let Some(panel) = panel_or_init(app_handle) {
         panel.show_and_make_key();
         position_panel_from_tray(app_handle);
     }
 }
 
-/// Toggle panel visibility. If visible, hide it. If hidden, show it.
-/// Used by global shortcut handler.
+pub fn hide_panel(app_handle: &AppHandle) {
+    if let Ok(panel) = app_handle.get_webview_panel("main") {
+        panel.hide();
+    }
+}
+
 pub fn toggle_panel(app_handle: &AppHandle) {
-    let Some(panel) = get_or_init_panel!(app_handle) else {
+    let Some(panel) = panel_or_init(app_handle) else {
         return;
     };
 
@@ -133,7 +127,22 @@ pub fn toggle_panel(app_handle: &AppHandle) {
     }
 }
 
-// Define our panel class and event handler together
+pub fn handle_tray_click(app_handle: &AppHandle, icon_position: Position, icon_size: Size) {
+    let Some(panel) = panel_or_init(app_handle) else {
+        return;
+    };
+
+    if panel.is_visible() {
+        log::debug!("tray click: hiding panel");
+        panel.hide();
+        return;
+    }
+    log::debug!("tray click: showing panel");
+
+    panel.show_and_make_key();
+    position_panel_at_tray_icon(app_handle, icon_position, icon_size);
+}
+
 tauri_panel! {
     panel!(OpenUsagePanel {
         config: {
@@ -156,12 +165,9 @@ pub fn init(app_handle: &tauri::AppHandle) -> tauri::Result<()> {
 
     let panel = window.to_panel::<OpenUsagePanel>()?;
 
-    // Disable native shadow - it causes gray border on transparent windows
-    // Let CSS handle shadow via shadow-xl class
     panel.set_has_shadow(false);
     panel.set_opaque(false);
 
-    // Configure panel behavior
     panel.set_level(PanelLevel::MainMenu.value() + 1);
 
     panel.set_collection_behavior(
@@ -173,7 +179,6 @@ pub fn init(app_handle: &tauri::AppHandle) -> tauri::Result<()> {
 
     panel.set_style_mask(StyleMask::empty().nonactivating_panel().value());
 
-    // Set up event handler to hide panel when it loses focus
     let event_handler = OpenUsagePanelEventHandler::new();
 
     let handle = app_handle.clone();
@@ -254,14 +259,10 @@ pub fn position_panel_at_tray_icon(
     let icon_logical_w = icon_phys_w / target_scale;
     let icon_logical_h = icon_phys_h / target_scale;
 
-    // Read panel width from the window, converted to logical points.
-    // outer_size() returns physical pixels at the window's current scale factor.
-    // If the window isn't available yet, parse the configured width from tauri.conf.json
-    // (embedded at compile time) so it stays in sync automatically.
     let panel_width = match (window.outer_size(), window.scale_factor()) {
         (Ok(s), Ok(win_scale)) => s.width as f64 / win_scale,
         _ => {
-            let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            let conf: serde_json::Value = serde_json::from_str(include_str!("../../tauri.conf.json"))
                 .expect("tauri.conf.json must be valid JSON");
             conf["app"]["windows"][0]["width"]
                 .as_f64()

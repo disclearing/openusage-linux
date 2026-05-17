@@ -77,6 +77,11 @@ export function AppShell({
         className="relative bg-card rounded-xl overflow-hidden select-none w-full border shadow-lg flex flex-col"
         style={maxPanelHeightPx ? { maxHeight: `${maxPanelHeightPx - ARROW_OVERHEAD_PX}px` } : undefined}
       >
+        <div
+          data-tauri-drag-region
+          className="h-3 w-full shrink-0 cursor-move"
+          aria-hidden
+        />
         <div className="flex flex-1 min-h-0 flex-row">
           <SideNav
             activeView={activeView}

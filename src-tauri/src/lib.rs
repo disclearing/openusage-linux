@@ -195,10 +195,12 @@ fn init_panel(app_handle: tauri::AppHandle) {
 
 #[tauri::command]
 fn hide_panel(app_handle: tauri::AppHandle) {
-    use tauri_nspanel::ManagerExt;
-    if let Ok(panel) = app_handle.get_webview_panel("main") {
-        panel.hide();
-    }
+    panel::hide_panel(&app_handle);
+}
+
+#[tauri::command]
+fn set_window_pin_on_top(app_handle: tauri::AppHandle, pinned: bool) -> Result<(), String> {
+    panel::set_always_on_top(&app_handle, pinned)
 }
 
 #[tauri::command]
@@ -346,10 +348,16 @@ async fn start_probe_batch(
 
 #[tauri::command]
 fn get_log_path(app_handle: tauri::AppHandle) -> Result<String, String> {
-    // macOS log directory: ~/Library/Logs/{bundleIdentifier}
     let home = dirs::home_dir().ok_or("no home dir")?;
-    let bundle_id = app_handle.config().identifier.clone();
-    let log_dir = home.join("Library").join("Logs").join(&bundle_id);
+    let log_dir = if cfg!(target_os = "macos") {
+        let bundle_id = app_handle.config().identifier.clone();
+        home.join("Library").join("Logs").join(&bundle_id)
+    } else {
+        home.join(".local")
+            .join("share")
+            .join(app_handle.package_info().name.clone())
+            .join("logs")
+    };
     let log_file = log_dir.join(format!("{}.log", app_handle.package_info().name));
     Ok(log_file.to_string_lossy().to_string())
 }
@@ -470,11 +478,18 @@ pub fn run() {
     let runtime = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
     let _guard = runtime.enter();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_aptabase::Builder::new("A-US-6435241436").build())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_nspanel::init())
+        .plugin(tauri_plugin_store::Builder::default().build());
+
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_nspanel::init());
+
+    #[cfg(not(target_os = "macos"))]
+    let builder = builder;
+
+    builder
         .plugin(
             tauri_plugin_log::Builder::new()
                 .targets([
@@ -495,6 +510,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             init_panel,
             hide_panel,
+            set_window_pin_on_top,
             open_devtools,
             start_probe_batch,
             list_plugins,

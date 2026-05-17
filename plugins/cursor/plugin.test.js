@@ -26,6 +26,67 @@ describe("cursor plugin", () => {
     expect(() => plugin.probe(ctx)).toThrow("Not logged in")
   })
 
+  it("loads tokens from installed Cursor app on linux without keychain auth", async () => {
+    const ctx = makeCtx()
+    ctx.app.platform = "linux"
+    const linuxDb = "~/.config/Cursor/User/globalStorage/state.vscdb"
+    const token = makeJwt({ exp: 9999999999 })
+
+    ctx.host.sqlite.query.mockImplementation((db, sql) => {
+      if (db !== linuxDb) return JSON.stringify([])
+      if (String(sql).includes("cursorAuth/accessToken")) return JSON.stringify([{ value: token }])
+      if (String(sql).includes("cursorAuth/refreshToken")) return JSON.stringify([{ value: "refresh" }])
+      return JSON.stringify([])
+    })
+    ctx.host.http.request.mockImplementation((opts) => {
+      if (String(opts.url).includes("GetCurrentPeriodUsage")) {
+        expect(opts.headers.Authorization).toBe("Bearer " + token)
+      }
+      return {
+        status: 200,
+        bodyText: JSON.stringify({
+          enabled: true,
+          planUsage: { totalSpend: 1200, limit: 2400 },
+        }),
+      }
+    })
+
+    const plugin = await loadPlugin()
+    const result = plugin.probe(ctx)
+
+    expect(result.lines.find((line) => line.label === "Total usage")).toBeTruthy()
+  })
+
+  it("uses linux variant path when stable Cursor DB is missing", async () => {
+    const ctx = makeCtx()
+    ctx.app.platform = "linux"
+    const insidersDb = "~/.config/Cursor - Insiders/User/globalStorage/state.vscdb"
+    const token = makeJwt({ exp: 9999999999 })
+
+    ctx.host.sqlite.query.mockImplementation((db, sql) => {
+      if (db !== insidersDb) return JSON.stringify([])
+      if (String(sql).includes("cursorAuth/accessToken")) return JSON.stringify([{ value: token }])
+      if (String(sql).includes("cursorAuth/refreshToken")) return JSON.stringify([{ value: "refresh" }])
+      return JSON.stringify([])
+    })
+    ctx.host.http.request.mockReturnValue({
+      status: 200,
+      bodyText: JSON.stringify({
+        enabled: true,
+        planUsage: { totalSpend: 1200, limit: 2400 },
+      }),
+    })
+
+    const plugin = await loadPlugin()
+    const result = plugin.probe(ctx)
+
+    expect(result.lines.find((line) => line.label === "Total usage")).toBeTruthy()
+    expect(ctx.host.sqlite.query).toHaveBeenCalledWith(
+      insidersDb,
+      expect.stringContaining("cursorAuth/accessToken")
+    )
+  })
+
   it("loads tokens from keychain when sqlite has none", async () => {
     const ctx = makeCtx()
     ctx.host.sqlite.query.mockReturnValue(JSON.stringify([]))
@@ -1304,6 +1365,10 @@ describe("cursor plugin", () => {
     const result = plugin.probe(ctx)
     expect(result.lines.find((line) => line.label === "Total usage")).toBeTruthy()
     expect(ctx.host.sqlite.exec).toHaveBeenCalled()
+    expect(ctx.host.sqlite.exec).toHaveBeenCalledWith(
+      "~/Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+      expect.stringContaining("cursorAuth/accessToken")
+    )
   })
 
   it("throws session expired when refresh requires logout and no access token exists", async () => {

@@ -4,6 +4,7 @@ import {
   getEnabledPluginIds,
   saveAutoUpdateInterval,
   saveGlobalShortcut,
+  savePinOnTop,
   saveStartOnLogin,
   type AutoUpdateIntervalMinutes,
   type GlobalShortcut,
@@ -16,6 +17,7 @@ type UseSettingsSystemActionsArgs = {
   setAutoUpdateNextAt: (value: number | null) => void
   setGlobalShortcut: (value: GlobalShortcut) => void
   setStartOnLogin: (value: boolean) => void
+  setPinOnTop: (value: boolean) => void
   applyStartOnLogin: (value: boolean) => Promise<void>
 }
 
@@ -25,6 +27,7 @@ export function useSettingsSystemActions({
   setAutoUpdateNextAt,
   setGlobalShortcut,
   setStartOnLogin,
+  setPinOnTop,
   applyStartOnLogin,
 }: UseSettingsSystemActionsArgs) {
   const handleAutoUpdateIntervalChange = useCallback((value: AutoUpdateIntervalMinutes) => {
@@ -64,9 +67,20 @@ export function useSettingsSystemActions({
     })
   }, [applyStartOnLogin, setStartOnLogin])
 
+  const handlePinOnTopChange = useCallback((value: boolean) => {
+    setPinOnTop(value)
+    void savePinOnTop(value).catch((error) => {
+      console.error("Failed to save pin on top:", error)
+    })
+    invoke("set_window_pin_on_top", { pinned: value }).catch((error) => {
+      console.error("Failed to update pin on top:", error)
+    })
+  }, [setPinOnTop])
+
   return {
     handleAutoUpdateIntervalChange,
     handleGlobalShortcutChange,
     handleStartOnLoginChange,
+    handlePinOnTopChange,
   }
 }
